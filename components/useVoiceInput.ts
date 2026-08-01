@@ -17,7 +17,10 @@ export interface VoiceInputApi {
   toggle: () => void;
 }
 
-export function useVoiceInput(onText: (text: string) => void): VoiceInputApi {
+export function useVoiceInput(
+  onText: (text: string) => void,
+  onLevel?: (level: number) => void,
+): VoiceInputApi {
   const [available, setAvailable] = useState<"checking" | boolean>("checking");
   const [recording, setRecording] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -28,6 +31,53 @@ export function useVoiceInput(onText: (text: string) => void): VoiceInputApi {
   const chunksRef = useRef<Blob[]>([]);
   const onTextRef = useRef(onText);
   onTextRef.current = onText;
+  const onLevelRef = useRef(onLevel);
+  onLevelRef.current = onLevel;
+
+  // 音量仪表（录音期间 60fps 上报 RMS 电平 0..1）
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const rafRef = useRef<number>(0);
+
+  const stopLevelMeter = useCallback(() => {
+    cancelAnimationFrame(rafRef.current);
+    rafRef.current = 0;
+    try {
+      void audioCtxRef.current?.close();
+    } catch {
+      /* ignore */
+    }
+    audioCtxRef.current = null;
+    analyserRef.current = null;
+    onLevelRef.current?.(-1); // 通知前端复位动画
+  }, []);
+
+  const startLevelMeter = useCallback((stream: MediaStream) => {
+    const AudioCtx =
+      window.AudioContext ||
+      (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+    const ctx = new AudioCtx();
+    const analyser = ctx.createAnalyser();
+    analyser.fftSize = 512;
+    ctx.createMediaStreamSource(stream).connect(analyser);
+    audioCtxRef.current = ctx;
+    analyserRef.current = analyser;
+    const data = new Uint8Array(analyser.fftSize);
+    const loop = () => {
+      const an = analyserRef.current;
+      if (!an) return;
+      an.getByteTimeDomainData(data);
+      let sum = 0;
+      for (let i = 0; i < data.length; i++) {
+        const v = (data[i] - 128) / 128;
+        sum += v * v;
+      }
+      const rms = Math.sqrt(sum / data.length);
+      onLevelRef.current?.(Math.min(1, rms * 5));
+      rafRef.current = requestAnimationFrame(loop);
+    };
+    rafRef.current = requestAnimationFrame(loop);
+  }, []);
 
   // 挂载时探测一次
   useEffect(() => {
@@ -86,8 +136,9 @@ export function useVoiceInput(onText: (text: string) => void): VoiceInputApi {
       streamRef.current = null;
       recorderRef.current = null;
       chunksRef.current = [];
+      stopLevelMeter();
     }
-  }, []);
+  }, [stopLevelMeter]);
 
   const toggle = useCallback(() => {
     if (busy) return;
@@ -100,6 +151,7 @@ export function useVoiceInput(onText: (text: string) => void): VoiceInputApi {
       .getUserMedia({ audio: true })
       .then((stream) => {
         streamRef.current = stream;
+        startLevelMeter(stream);
         const rec = new MediaRecorder(stream);
         chunksRef.current = [];
         rec.ondataavailable = (e) => {
@@ -109,6 +161,7 @@ export function useVoiceInput(onText: (text: string) => void): VoiceInputApi {
           void finishRecording();
         };
         rec.onerror = () => {
+          stopLevelMeter();
           setError("录音失败");
           stream.getTracks().forEach((t) => t.stop());
           streamRef.current = null;
@@ -122,7 +175,7 @@ export function useVoiceInput(onText: (text: string) => void): VoiceInputApi {
       .catch((e) => {
         setError(`无法访问麦克风：${(e as Error).message}`);
       });
-  }, [busy, recording, finishRecording]);
+  }, [busy, recording, finishRecording, startLevelMeter]);
 
   return { available, recording, busy, error, toggle };
 }

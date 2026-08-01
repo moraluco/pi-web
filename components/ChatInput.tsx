@@ -382,6 +382,8 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
 
   // ---- 可选语音输入（pi-voice 集成；服务不可用时按钮自动隐藏） ----
   const insertTextAtCursorRef = useRef<(text: string) => void>(null);
+  const micBtnRef = useRef<HTMLButtonElement | null>(null);
+  const voiceLevelRef = useRef(0); // 音量平滑值（0..1）
 
   const insertTextAtCursor = useCallback((text: string) => {
     const ta = textareaRef.current;
@@ -411,6 +413,24 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const voice = useVoiceInput(
     useCallback((text: string) => {
       insertTextAtCursorRef.current?.(text);
+    }, []),
+    useCallback((level: number) => {
+      const btn = micBtnRef.current;
+      if (!btn) return;
+      if (level < 0) {
+        // 录音结束：复位动画
+        voiceLevelRef.current = 0;
+        btn.style.transform = "";
+        btn.style.boxShadow = "";
+        btn.style.background = "none";
+        return;
+      }
+      // 指数平滑，避免抖动
+      voiceLevelRef.current = voiceLevelRef.current * 0.65 + level * 0.35;
+      const s = voiceLevelRef.current;
+      btn.style.transform = `scale(${1 + s * 0.35})`;
+      btn.style.boxShadow = `0 0 ${4 + s * 18}px rgba(59,130,246,${0.25 + s * 0.5})`;
+      btn.style.background = `rgba(59,130,246,${0.06 + s * 0.3})`;
     }, []),
   );
 
@@ -1754,27 +1774,27 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0, alignSelf: "flex-end" }}>
               {voice.available === true && (
                 <button
+                  ref={micBtnRef}
                   onClick={() => voice.toggle()}
                   title={voice.busy ? "转写中…" : voice.error ? `语音输入：${voice.error}` : voice.recording ? "点击结束并转写" : "语音输入（Alt+M）"}
                   aria-label="语音输入（Alt+M）"
                   style={{
                     display: "flex", alignItems: "center", justifyContent: "center",
                     width: 32, height: 32, padding: 0,
-                    background: voice.recording ? "rgba(239,68,68,0.18)" : "none",
-                    border: voice.recording ? "1px solid rgba(239,68,68,0.6)" : "none",
+                    background: voice.recording ? "rgba(59,130,246,0.12)" : "none",
+                    border: voice.recording ? "1px solid rgba(59,130,246,0.5)" : "1px solid transparent",
                     borderRadius: 9,
-                    color: voice.recording ? "#ef4444" : voice.busy ? "var(--text-dim)" : "var(--text-muted)",
+                    color: voice.recording ? "#60a5fa" : voice.busy ? "var(--text-dim)" : "var(--text-muted)",
                     cursor: voice.busy ? "wait" : "pointer",
-                    animation: voice.recording ? "voicePulse 1.2s ease-in-out infinite" : undefined,
-                    transition: "background 0.12s, color 0.12s",
+                    transition: "background 0.15s, color 0.15s",
                   }}
                   onMouseEnter={(e) => {
-                    e.currentTarget.style.background = voice.recording ? "rgba(239,68,68,0.18)" : "var(--bg-hover)";
-                    e.currentTarget.style.color = voice.recording ? "#ef4444" : "var(--text)";
+                    e.currentTarget.style.background = voice.recording ? "rgba(59,130,246,0.18)" : "var(--bg-hover)";
+                    e.currentTarget.style.color = voice.recording ? "#93c5fd" : "var(--text)";
                   }}
                   onMouseLeave={(e) => {
-                    e.currentTarget.style.background = voice.recording ? "rgba(239,68,68,0.18)" : "none";
-                    e.currentTarget.style.color = voice.recording ? "#ef4444" : "var(--text-muted)";
+                    e.currentTarget.style.background = voice.recording ? "rgba(59,130,246,0.12)" : "none";
+                    e.currentTarget.style.color = voice.recording ? "#60a5fa" : "var(--text-muted)";
                   }}
                 >
                   {voice.busy ? (
