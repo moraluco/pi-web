@@ -1052,3 +1052,16 @@ span.linenumber {
     font-size: 16px !important;
   }
 }
+
+/* ---- 可选语音输入（pi-voice 集成）---- */
+@keyframes voicePulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.35); }
+  50% { box-shadow: 0 0 0 5px rgba(239, 68, 68, 0); }
+}
+.voice-spin {
+  animation: voiceSpin 0.9s linear infinite;
+}
+@keyframes voiceSpin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}

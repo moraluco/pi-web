@@ -16,6 +16,7 @@ import {
 import { FolderIcon, getFileIcon } from "./FileIcons";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useI18n } from "@/hooks/useI18n";
+import { useVoiceInput } from "./useVoiceInput";
 
 export interface AttachedImage {
   data: string;   // base64, no prefix
@@ -379,6 +380,40 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   valueRef.current = value;
   attachedImagesRef.current = attachedImages;
 
+  // ---- 可选语音输入（pi-voice 集成；服务不可用时按钮自动隐藏） ----
+  const insertTextAtCursorRef = useRef<(text: string) => void>(null);
+
+  const insertTextAtCursor = useCallback((text: string) => {
+    const ta = textareaRef.current;
+    if (!ta) {
+      setValue((v) => v + (v ? " " : "") + text);
+      return;
+    }
+    const start = ta.selectionStart ?? ta.value.length;
+    const end = ta.selectionEnd ?? ta.value.length;
+    const before = ta.value.slice(0, start);
+    const after = ta.value.slice(end);
+    const sep = before.length > 0 && !before.endsWith(" ") ? " " : "";
+    const newVal = before + sep + text + after;
+    setValue(newVal);
+    setAtQuery(null);
+    requestAnimationFrame(() => {
+      if (!ta) return;
+      const pos = start + sep.length + text.length;
+      ta.setSelectionRange(pos, pos);
+      ta.focus();
+      ta.style.height = "auto";
+      ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
+    });
+  }, []);
+  insertTextAtCursorRef.current = insertTextAtCursor;
+
+  const voice = useVoiceInput(
+    useCallback((text: string) => {
+      insertTextAtCursorRef.current?.(text);
+    }, []),
+  );
+
   useImperativeHandle(ref, () => ({
     insertIfEmpty(text: string) {
       const ta = textareaRef.current;
@@ -411,27 +446,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       });
     },
     insertText(text: string) {
-      const ta = textareaRef.current;
-      if (!ta) {
-        setValue((v) => v + (v ? " " : "") + text);
-        return;
-      }
-      const start = ta.selectionStart ?? ta.value.length;
-      const end = ta.selectionEnd ?? ta.value.length;
-      const before = ta.value.slice(0, start);
-      const after = ta.value.slice(end);
-      const sep = before.length > 0 && !before.endsWith(" ") ? " " : "";
-      const newVal = before + sep + text + after;
-      setValue(newVal);
-      setAtQuery(null);
-      requestAnimationFrame(() => {
-        if (!ta) return;
-        const pos = start + sep.length + text.length;
-        ta.setSelectionRange(pos, pos);
-        ta.focus();
-        ta.style.height = "auto";
-        ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
-      });
+      insertTextAtCursor(text);
     },
     addImages(files: File[]) {
       processImageFiles(files);
@@ -853,6 +868,13 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         return;
       }
 
+      // 可选语音输入：Alt+M 录音/结束（与 pi TUI 快捷键一致）
+      if (e.altKey && !e.ctrlKey && !e.metaKey && (e.key === "m" || e.key === "M")) {
+        e.preventDefault();
+        if (voice.available === true) voice.toggle();
+        return;
+      }
+
       if (historyMenuOpen && !isComposing) {
         if (e.key === "ArrowDown") {
           e.preventDefault();
@@ -960,7 +982,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         }
       }
     },
-    [isStreaming, onSteer, onFollowUp, onAbort, slashMenuOpen, slashQuery, displayedSlashCommands, slashActiveIndex, applySlashCommand, sendQueued, handleSend, getNextSlashIndex, atMenuOpen, atQuery, atMatches, atActiveIndex, applyAtCompletion, historyMenuOpen, inputHistory, historyActiveIndex, applyHistoryInput, value]
+    [isStreaming, onSteer, onFollowUp, onAbort, slashMenuOpen, slashQuery, displayedSlashCommands, slashActiveIndex, applySlashCommand, sendQueued, handleSend, getNextSlashIndex, atMenuOpen, atQuery, atMatches, atActiveIndex, applyAtCompletion, historyMenuOpen, inputHistory, historyActiveIndex, applyHistoryInput, value, voice]
   );
 
   const handleInput = useCallback(() => {
@@ -1729,8 +1751,48 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
               )}
             </div>
           ) : (
-            <button
-              onClick={handleSend}
+            <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0, alignSelf: "flex-end" }}>
+              {voice.available === true && (
+                <button
+                  onClick={() => voice.toggle()}
+                  title={voice.busy ? "转写中…" : voice.error ? `语音输入：${voice.error}` : voice.recording ? "点击结束并转写" : "语音输入（Alt+M）"}
+                  aria-label="语音输入（Alt+M）"
+                  style={{
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    width: 32, height: 32, padding: 0,
+                    background: voice.recording ? "rgba(239,68,68,0.18)" : "none",
+                    border: voice.recording ? "1px solid rgba(239,68,68,0.6)" : "none",
+                    borderRadius: 9,
+                    color: voice.recording ? "#ef4444" : voice.busy ? "var(--text-dim)" : "var(--text-muted)",
+                    cursor: voice.busy ? "wait" : "pointer",
+                    animation: voice.recording ? "voicePulse 1.2s ease-in-out infinite" : undefined,
+                    transition: "background 0.12s, color 0.12s",
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = voice.recording ? "rgba(239,68,68,0.18)" : "var(--bg-hover)";
+                    e.currentTarget.style.color = voice.recording ? "#ef4444" : "var(--text)";
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = voice.recording ? "rgba(239,68,68,0.18)" : "none";
+                    e.currentTarget.style.color = voice.recording ? "#ef4444" : "var(--text-muted)";
+                  }}
+                >
+                  {voice.busy ? (
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" className="voice-spin">
+                      <path d="M21 12a9 9 0 1 1-6.2-8.56" />
+                    </svg>
+                  ) : (
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
+                      <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                      <line x1="12" y1="19" x2="12" y2="23" />
+                      <line x1="8" y1="23" x2="16" y2="23" />
+                    </svg>
+                  )}
+                </button>
+              )}
+              <button
+                onClick={handleSend}
               disabled={!value.trim() && !attachedImages.length}
               style={{
                 flexShrink: 0,
@@ -1755,6 +1817,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
               </svg>
               {t("chat.send")}
             </button>
+            </div>
           )}
           </div>
         </div>
