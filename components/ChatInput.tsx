@@ -17,6 +17,7 @@ import { FolderIcon, getFileIcon } from "./FileIcons";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useI18n } from "@/hooks/useI18n";
 import { useVoiceInput } from "./useVoiceInput";
+import type { VoiceChatApi } from "./useVoiceChat";
 
 export interface AttachedImage {
   data: string;   // base64, no prefix
@@ -31,6 +32,8 @@ interface ModelOption {
 }
 
 interface Props {
+  /** 语音会话（F3）API；由 ChatWindow 注入，未提供则隐藏会话按钮 */
+  voiceChat?: VoiceChatApi;
   onSend: (message: string, images?: AttachedImage[]) => void;
   onAbort: () => void;
   onSteer?: (message: string, images?: AttachedImage[]) => void;
@@ -321,6 +324,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   onBuiltinCommand,
   soundEnabled, onSoundToggle, onAudioUnlock,
   onPromptWithStreamingBehavior,
+  voiceChat,
   draftKey,
   cwd,
 }: Props, ref) {
@@ -1807,6 +1811,61 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                       <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
                       <line x1="12" y1="19" x2="12" y2="23" />
                       <line x1="8" y1="23" x2="16" y2="23" />
+                    </svg>
+                  )}
+                </button>
+              )}
+              {voiceChat?.available === true && (
+                <button
+                  onClick={() => {
+                    onAudioUnlock?.();
+                    if (voiceChat.active) {
+                      void voiceChat.stop();
+                    } else {
+                      void voiceChat.start();
+                    }
+                  }}
+                  title={
+                    voiceChat.error
+                      ? `语音会话：${voiceChat.error}`
+                      : voiceChat.active
+                        ? "语音会话中…（点击退出；说话即发送，回复自动朗读，开口可打断）"
+                        : "语音会话：说话→pi 处理→朗读回复"
+                  }
+                  aria-label="语音会话"
+                  style={{
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    width: 32, height: 32, padding: 0,
+                    background: voiceChat.active ? "rgba(16,185,129,0.15)" : "none",
+                    border: voiceChat.active ? "1px solid rgba(16,185,129,0.55)" : "1px solid transparent",
+                    borderRadius: 9,
+                    color: voiceChat.active ? "#34d399" : "var(--text-muted)",
+                    cursor: "pointer",
+                    transition: "background 0.15s, color 0.15s",
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = voiceChat.active ? "rgba(16,185,129,0.22)" : "var(--bg-hover)";
+                    e.currentTarget.style.color = voiceChat.active ? "#6ee7b7" : "var(--text)";
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = voiceChat.active ? "rgba(16,185,129,0.15)" : "none";
+                    e.currentTarget.style.color = voiceChat.active ? "#34d399" : "var(--text-muted)";
+                  }}
+                >
+                  {voiceChat.active ? (
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M2 10v3" />
+                      <path d="M6 6v11" />
+                      <path d="M10 3v18" />
+                      <path d="M14 8v7" />
+                      <path d="M18 5v13" />
+                      <path d="M22 10v3" />
+                    </svg>
+                  ) : (
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M11 5 6 9H2v6h4l5 4V5z" />
+                      <path d="M15.5 8.5a5 5 0 0 1 0 7" />
+                      <path d="M19 5a10 10 0 0 1 0 14" />
                     </svg>
                   )}
                 </button>

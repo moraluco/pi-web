@@ -7,6 +7,7 @@ import { asBracketedPaste, toTerminalKeyData } from "@/lib/terminal-input";
 import { countToolCallBlocks, getAssistantErrorMessage, getDisplayableAssistantBlocks, splitFinalAssistantBlocks } from "@/lib/message-display";
 import { MessageView } from "./MessageView";
 import { ChatInput, type ChatInputHandle } from "./ChatInput";
+import { useVoiceChat } from "./useVoiceChat";
 import { ChatMinimap, useMessageRefs } from "./ChatMinimap";
 import { ExtensionStatusBar } from "./ExtensionStatusBar";
 import { useI18n } from "@/hooks/useI18n";
@@ -219,6 +220,43 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
   });
   const sessionBusy = agentRunning || bashRunning;
 
+  // ---- 语音会话（F3）：全双工对话 + 回复流式朗读 ----
+  const voiceChat = useVoiceChat({
+    onSend: handleSend,
+    isAgentBusy: () => agentRunning || bashRunning,
+  });
+
+  // 回复增量 → 朗读（仅会话激活 + agent 正在生成时）
+  const lastReadMsgKeyRef = useRef<string | null>(null);
+  const lastReadLenRef = useRef(0);
+  useEffect(() => {
+    if (!voiceChat.active || !agentRunning) return;
+    // 找最后一条 assistant 消息
+    let lastAssistant: (typeof messages)[number] | null = null;
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i]?.role === "assistant") {
+        lastAssistant = messages[i];
+        break;
+      }
+    }
+    if (!lastAssistant || lastAssistant.role !== "assistant") return;
+    const msgKey = `${lastAssistant.timestamp ?? 0}`;
+    if (lastReadMsgKeyRef.current !== msgKey) {
+      lastReadMsgKeyRef.current = msgKey;
+      lastReadLenRef.current = 0;
+    }
+    const text = Array.isArray(lastAssistant.content)
+      ? lastAssistant.content
+          .map((b) => (typeof b === "object" && b && "text" in b ? String((b as { text: string }).text) : ""))
+          .join("")
+      : String(((lastAssistant as unknown as { content?: string }).content) ?? "");
+    if (text.length > lastReadLenRef.current) {
+      const delta = text.slice(lastReadLenRef.current);
+      lastReadLenRef.current = text.length;
+      voiceChat.speak(delta);
+    }
+  }, [messages, voiceChat, agentRunning]);
+
   useEffect(() => {
     if (!extensionDialog || soundedExtensionDialogIdRef.current === extensionDialog.id) return;
     soundedExtensionDialogIdRef.current = extensionDialog.id;
@@ -348,6 +386,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
       onSteer={agentRunning ? handleSteer : undefined}
       onFollowUp={agentRunning ? handleFollowUp : undefined}
       onPromptWithStreamingBehavior={agentRunning ? handlePromptWithStreamingBehavior : undefined}
+      voiceChat={voiceChat}
       isStreaming={sessionBusy}
       model={displayModelValue}
       isAutoModelSelection={isAutoModelSelection}
