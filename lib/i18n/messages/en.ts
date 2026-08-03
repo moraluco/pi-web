@@ -178,6 +178,7 @@ export const enLocale: LocalePlugin = {
     "chat.askUser.optionNote": "Add a note for this option (optional)",
     "chat.askUser.required": "required",
     "chat.askUser.unanswered": "Not answered",
+    "chat.askUser.previewHint": "Hover an option to preview it",
     "chat.cancel": "Cancel",
     "chat.confirm": "Confirm",
     "chat.submit": "Submit",

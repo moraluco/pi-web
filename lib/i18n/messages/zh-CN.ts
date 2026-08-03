@@ -178,6 +178,7 @@ export const zhCNLocale: LocalePlugin = {
     "chat.askUser.optionNote": "为该选项添加备注（可选）",
     "chat.askUser.required": "必填",
     "chat.askUser.unanswered": "未回答",
+    "chat.askUser.previewHint": "悬停选项查看预览",
     "chat.cancel": "取消",
     "chat.confirm": "确认",
     "chat.submit": "提交",

@@ -18,6 +18,7 @@ import { useIsMobile } from "@/hooks/useIsMobile";
 import { useI18n } from "@/hooks/useI18n";
 import { useVoiceInput } from "./useVoiceInput";
 import type { VoiceChatApi } from "./useVoiceChat";
+import type { RealtimeChatApi } from "./useRealtimeChat";
 
 export interface AttachedImage {
   data: string;   // base64, no prefix
@@ -34,6 +35,8 @@ interface ModelOption {
 interface Props {
   /** 语音会话（F3）API；由 ChatWindow 注入，未提供则隐藏会话按钮 */
   voiceChat?: VoiceChatApi;
+  /** 全双工实时语音对话（云端豆包）API；由 ChatWindow 注入 */
+  realtimeChat?: RealtimeChatApi;
   onSend: (message: string, images?: AttachedImage[]) => void;
   onAbort: () => void;
   onSteer?: (message: string, images?: AttachedImage[]) => void;
@@ -325,6 +328,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   soundEnabled, onSoundToggle, onAudioUnlock,
   onPromptWithStreamingBehavior,
   voiceChat,
+  realtimeChat,
   draftKey,
   cwd,
 }: Props, ref) {
@@ -1811,6 +1815,58 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                       <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
                       <line x1="12" y1="19" x2="12" y2="23" />
                       <line x1="8" y1="23" x2="16" y2="23" />
+                    </svg>
+                  )}
+                </button>
+              )}
+              {realtimeChat?.available === true && (
+                <button
+                  onClick={() => {
+                    onAudioUnlock?.();
+                    if (realtimeChat.active || realtimeChat.connecting) {
+                      void realtimeChat.stop();
+                    } else {
+                      void realtimeChat.start();
+                    }
+                  }}
+                  title={
+                    realtimeChat.error
+                      ? `实时语音：${realtimeChat.error}`
+                      : realtimeChat.connecting
+                        ? "连接中…"
+                        : realtimeChat.active
+                          ? realtimeChat.speaking
+                            ? "AI 说话中…（开口可打断）"
+                            : "实时对话中…（点击挂断）"
+                          : "实时语音对话（全双工：说话即回应，随时打断）"
+                  }
+                  aria-label="实时语音对话"
+                  style={{
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    width: 32, height: 32, padding: 0,
+                    background: realtimeChat.active ? "rgba(168,85,247,0.15)" : "none",
+                    border: realtimeChat.active ? "1px solid rgba(168,85,247,0.55)" : "1px solid transparent",
+                    borderRadius: 9,
+                    color: realtimeChat.connecting ? "#fbbf24" : realtimeChat.active ? "#c084fc" : "var(--text-muted)",
+                    cursor: "pointer",
+                    transition: "background 0.15s, color 0.15s",
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = realtimeChat.active ? "rgba(168,85,247,0.22)" : "var(--bg-hover)";
+                    e.currentTarget.style.color = realtimeChat.active ? "#d8b4fe" : "var(--text)";
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = realtimeChat.active ? "rgba(168,85,247,0.15)" : "none";
+                    e.currentTarget.style.color = realtimeChat.connecting ? "#fbbf24" : realtimeChat.active ? "#c084fc" : "var(--text-muted)";
+                  }}
+                >
+                  {realtimeChat.active ? (
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                      <path d="M6.62 10.79c1.44 2.83 3.76 5.14 6.59 6.59l2.2-2.2c.27-.27.67-.36 1.02-.24 1.12.37 2.33.57 3.57.57.55 0 1 .45 1 1V20c0 .55-.45 1-1 1-9.39 0-17-7.61-17-17 0-.55.45-1 1-1h3.5c.55 0 1 .45 1 1 0 1.25.2 2.45.57 3.57.11.35.03.74-.25 1.02l-2.2 2.2z"/>
+                    </svg>
+                  ) : (
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z" />
                     </svg>
                   )}
                 </button>

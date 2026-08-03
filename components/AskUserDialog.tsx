@@ -357,7 +357,7 @@ export function AskUserDialog({
                 </div>
               </div>
 
-              {currentPreview && (
+              {activeQuestion.type === "preview" && (
                 <div
                   style={{
                     marginTop: 10,
@@ -366,9 +366,19 @@ export function AskUserDialog({
                     border: "1px solid var(--border)",
                     background: "var(--bg-panel)",
                     fontSize: 13,
+                    // Fixed height: the pane must not resize the dialog as
+                    // the user hovers different options.
+                    height: 180,
+                    overflowY: "auto",
                   }}
                 >
-                  <MarkdownBody>{currentPreview}</MarkdownBody>
+                  {currentPreview ? (
+                    <MarkdownBody>{currentPreview}</MarkdownBody>
+                  ) : (
+                    <span style={{ color: "var(--text-dim)", fontSize: 12 }}>
+                      {t("chat.askUser.previewHint")}
+                    </span>
+                  )}
                 </div>
               )}
 

@@ -8,6 +8,7 @@ import { countToolCallBlocks, getAssistantErrorMessage, getDisplayableAssistantB
 import { MessageView } from "./MessageView";
 import { ChatInput, type ChatInputHandle } from "./ChatInput";
 import { useVoiceChat } from "./useVoiceChat";
+import { useRealtimeChat } from "./useRealtimeChat";
 import { ChatMinimap, useMessageRefs } from "./ChatMinimap";
 import { ExtensionStatusBar } from "./ExtensionStatusBar";
 import { AskUserDialog } from "./AskUserDialog";
@@ -229,6 +230,59 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
     isAgentBusy: () => agentRunning || bashRunning,
   });
 
+  // ---- 全双工实时语音对话（豆包云端 API：耳朵+嘴，pi 是大脑）----
+  const realtimeChat = useRealtimeChat({
+    onUserText: (text) => {
+      // 用户语音 → pi 主会话（kimi/deepseek 思考 + 工具）
+      handleSend(text);
+    },
+  });
+
+  // pi 回复流 → 豆包朗读（realtime 会话激活时）
+  const rtLastMsgKeyRef = useRef<string | null>(null);
+  const rtLastLenRef = useRef(0);
+  useEffect(() => {
+    if (!realtimeChat.active || !agentRunning) return;
+    let lastAssistant: (typeof messages)[number] | null = null;
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i]?.role === "assistant") {
+        lastAssistant = messages[i];
+        break;
+      }
+    }
+    if (!lastAssistant || lastAssistant.role !== "assistant") return;
+    const msgKey = `${lastAssistant.timestamp ?? 0}`;
+    if (rtLastMsgKeyRef.current !== msgKey) {
+      rtLastMsgKeyRef.current = msgKey;
+      rtLastLenRef.current = 0;
+    }
+    const text = Array.isArray(lastAssistant.content)
+      ? lastAssistant.content
+          .map((b) => (typeof b === "object" && b && "text" in b ? String((b as { text: string }).text) : ""))
+          .join("")
+      : String(((lastAssistant as unknown as { content?: string }).content) ?? "");
+    if (text.length > rtLastLenRef.current) {
+      const delta = text.slice(rtLastLenRef.current);
+      rtLastLenRef.current = text.length;
+      realtimeChat.speak(delta);
+    }
+  }, [messages, realtimeChat, agentRunning]);
+
+  // pi 回复完成 → 通知豆包朗读收尾
+  const rtWasRunningRef = useRef(false);
+  useEffect(() => {
+    if (!realtimeChat.active) {
+      rtWasRunningRef.current = false;
+      return;
+    }
+    if (agentRunning) {
+      rtWasRunningRef.current = true;
+    } else if (rtWasRunningRef.current) {
+      rtWasRunningRef.current = false;
+      realtimeChat.speakEnd();
+    }
+  }, [agentRunning, realtimeChat]);
+
   // 回复增量 → 朗读（仅会话激活 + agent 正在生成时）
   const lastReadMsgKeyRef = useRef<string | null>(null);
   const lastReadLenRef = useRef(0);
@@ -396,6 +450,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
       onFollowUp={agentRunning ? handleFollowUp : undefined}
       onPromptWithStreamingBehavior={agentRunning ? handlePromptWithStreamingBehavior : undefined}
       voiceChat={voiceChat}
+      realtimeChat={realtimeChat}
       isStreaming={sessionBusy}
       model={displayModelValue}
       isAutoModelSelection={isAutoModelSelection}
