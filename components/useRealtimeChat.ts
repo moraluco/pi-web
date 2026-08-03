@@ -60,6 +60,7 @@ export function useRealtimeChat(options?: RealtimeChatOptions): RealtimeChatApi 
   const playQueueRef = useRef<Float32Array<ArrayBuffer>[]>([]);
   const playTimerRef = useRef<number | null>(null);
   const pcmRemainderRef = useRef<Uint8Array>(new Uint8Array(0));
+  const nextStartTimeRef = useRef(0); // 下一段音频的播放起始时间（时间戳接续，防破碎/重叠）
 
   const cleanup = useCallback(() => {
     workletRef.current?.disconnect();
@@ -76,7 +77,7 @@ export function useRealtimeChat(options?: RealtimeChatOptions): RealtimeChatApi 
     pcmRemainderRef.current = new Uint8Array(0);
   }, []);
 
-  /** 播放：PCM16 24kHz → AudioContext 流式播放 */
+  /** 播放：PCM16 24kHz → AudioContext 流式播放（时间戳接续，业界标准调度） */
   const schedulePlayback = useCallback(() => {
     if (playTimerRef.current !== null) return;
     if (!playCtxRef.current) {
@@ -84,19 +85,27 @@ export function useRealtimeChat(options?: RealtimeChatOptions): RealtimeChatApi 
     }
     const ctx = playCtxRef.current;
     playTimerRef.current = window.setInterval(() => {
-      const chunk = playQueueRef.current.shift();
-      if (!chunk || chunk.length === 0) return;
-      const buf = ctx.createBuffer(1, chunk.length, OUTPUT_RATE);
-      buf.copyToChannel(chunk, 0);
-      const src = ctx.createBufferSource();
-      src.buffer = buf;
-      src.connect(ctx.destination);
-      src.start();
-      setSpeaking(true);
-      src.onended = () => {
-        if (playQueueRef.current.length === 0) setSpeaking(false);
-      };
-    }, 15);
+      // 每次循环把队列里所有可用 chunk 按时间戳顺序排入播放
+      while (playQueueRef.current.length > 0) {
+        const chunk = playQueueRef.current.shift()!;
+        if (chunk.length === 0) continue;
+        const buf = ctx.createBuffer(1, chunk.length, OUTPUT_RATE);
+        buf.copyToChannel(chunk, 0);
+        const src = ctx.createBufferSource();
+        src.buffer = buf;
+        src.connect(ctx.destination);
+        // 接续上一段：若落后当前时间（网络抖动）则立即播放，否则排在上段末尾
+        const startAt = Math.max(ctx.currentTime, nextStartTimeRef.current);
+        src.start(startAt);
+        nextStartTimeRef.current = startAt + buf.duration;
+        setSpeaking(true);
+        src.onended = () => {
+          if (playQueueRef.current.length === 0 && ctx.currentTime >= nextStartTimeRef.current) {
+            setSpeaking(false);
+          }
+        };
+      }
+    }, 20);
   }, []);
 
   /** 接收二进制 PCM16 → Float32 入播放队列 */
