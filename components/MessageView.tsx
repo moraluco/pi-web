@@ -1368,7 +1368,7 @@ function previewText(text: string): string {
 }
 
 
-function getToolPreview(block: ToolCallContent): string {
+export function getToolPreview(block: ToolCallContent): string {
   const input = block.input;
   if (!input || typeof input !== "object") return "";
   const keys = Object.keys(input);
@@ -1380,6 +1380,19 @@ function getToolPreview(block: ToolCallContent): string {
   if ("file_path" in input) return String(input.file_path).slice(0, 120);
   if ("pattern" in input) return String(input.pattern).slice(0, 120);
   if ("query" in input) return String(input.query).slice(0, 120);
+
+  // ask_user: summarize as "title · label / label / …" instead of "[object Object]"
+  if (block.toolName === "ask_user" && Array.isArray(input.questions)) {
+    const questions = input.questions as Array<{ label?: unknown }>;
+    const labels = questions
+      .map((question, index) =>
+        typeof question?.label === "string" && question.label ? question.label : `Q${index + 1}`,
+      )
+      .slice(0, 4);
+    const extra = questions.length > 4 ? ` +${questions.length - 4}` : "";
+    const title = typeof input.title === "string" && input.title ? `${input.title} · ` : "";
+    return `${title}${labels.join(" / ")}${extra}`.slice(0, 120);
+  }
 
   const first = input[keys[0]];
   return String(first).slice(0, 120);

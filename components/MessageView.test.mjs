@@ -49,3 +49,40 @@ test("renders partial assistant content before the provider error", () => {
   assert.match(html, /Partial response/);
   assert.match(html, /Error: Connection closed/);
 });
+
+test("getToolPreview summarizes ask_user questions instead of [object Object]", async () => {
+  const { getToolPreview } = await jiti.import("./MessageView.tsx");
+  const preview = getToolPreview({
+    toolName: "ask_user",
+    input: {
+      title: "旅行计划",
+      questions: [
+        { id: "q1", label: "目的地", prompt: "?", options: [] },
+        { id: "q2", label: "装备", prompt: "?", options: [] },
+      ],
+    },
+  });
+  assert.equal(preview, "旅行计划 · 目的地 / 装备");
+});
+
+test("getToolPreview falls back to Qn labels and caps long lists", async () => {
+  const { getToolPreview } = await jiti.import("./MessageView.tsx");
+  const preview = getToolPreview({
+    toolName: "ask_user",
+    input: {
+      questions: [
+        { prompt: "?" }, { label: "B" }, { label: "C" }, { label: "D" }, { label: "E" },
+      ],
+    },
+  });
+  assert.equal(preview, "Q1 / B / C / D +1");
+});
+
+test("getToolPreview keeps existing behavior for other tools", async () => {
+  const { getToolPreview } = await jiti.import("./MessageView.tsx");
+  assert.equal(getToolPreview({ toolName: "bash", input: { command: "ls -la" } }), "ls -la");
+  assert.equal(
+    getToolPreview({ toolName: "write", input: { path: "/tmp/x", content: "y" } }),
+    "/tmp/x",
+  );
+});
