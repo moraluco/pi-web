@@ -3,6 +3,10 @@
 import { useState, useCallback, useRef, useEffect, useMemo, useReducer } from "react";
 import type {
   AgentMessage,
+  AskUserClosedEvent,
+  AskUserRequestEvent,
+  AskUserSubmitResponse,
+  AskUserSubmitResult,
   ExtensionStatusItem,
   ExtensionUiRequest,
   ExtensionWidgetItem,
@@ -373,6 +377,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const [noticeState, dispatchNotice] = useReducer(noticeReducer, { visible: [], pending: [] });
   const [sessionStatsOverride, setSessionStatsOverride] = useState<SessionStatsInfo | null>(null);
   const [extensionDialog, setExtensionDialog] = useState<ExtensionUiDialogRequest | null>(null);
+  const [askUserFlow, setAskUserFlow] = useState<AskUserRequestEvent | null>(null);
   const [extensionCustomUi, setExtensionCustomUi] = useState<ExtensionUiCustomRequest | null>(null);
   const [extensionStatuses, setExtensionStatuses] = useState<ExtensionStatusItem[]>([]);
   const [extensionWidgets, setExtensionWidgets] = useState<ExtensionWidgetItem[]>([]);
@@ -742,6 +747,29 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       });
     } catch (e) {
       console.error("Failed to send extension UI response:", e);
+    }
+  }, []);
+
+  const respondAskUser = useCallback(async (
+    flow: AskUserRequestEvent,
+    response: AskUserSubmitResponse,
+  ): Promise<AskUserSubmitResult> => {
+    const sid = sessionIdRef.current;
+    if (!sid) return { ok: false, error: "no_session", message: "No active session." };
+    try {
+      const result = await sendAgentCommand<AskUserSubmitResult>(sid, {
+        type: "ask_user_submit",
+        flowId: flow.flowId,
+        response,
+      });
+      if (result.ok) {
+        // The pi-ask completed event also closes the dialog; closing eagerly
+        // keeps the UI responsive on the happy path.
+        setAskUserFlow((current) => current?.flowId === flow.flowId ? null : current);
+      }
+      return result;
+    } catch (e) {
+      return { ok: false, error: "request_failed", message: e instanceof Error ? e.message : String(e) };
     }
   }, []);
 
@@ -1213,6 +1241,14 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         break;
       case "extension_ui_request":
         handleExtensionUiRequest(event as ExtensionUiRequest);
+        break;
+      case "ask_user_request":
+        setAskUserFlow(event as unknown as AskUserRequestEvent);
+        break;
+      case "ask_user_closed":
+        setAskUserFlow((current) =>
+          current?.flowId === (event as unknown as AskUserClosedEvent).flowId ? null : current,
+        );
         break;
     }
   }, [addNotice, cancelEventStreamGrace, handleExtensionUiRequest, loadSession, notifyPromptStage, onAgentEnd, scheduleEventStreamClose, settleUiStage]);
@@ -1843,6 +1879,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     isCompacting, compactError, compactResult, currentModel, displayModel, sessionStats,
     slashCommands, slashCommandsLoading, queuedMessages,
     notices: noticeState.visible, extensionDialog, extensionCustomUi, extensionStatuses, extensionWidgets, respondToExtensionUi, sendExtensionCustomInput,
+    askUserFlow, respondAskUser,
     isAutoModelSelection: isNew && newSessionModel === null,
     agentPhase,
     isNew,

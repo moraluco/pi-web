@@ -1,5 +1,5 @@
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
-import { createAgentSessionFromServices, createAgentSessionServices, getAgentDir, initTheme, SessionManager, Theme } from "@earendil-works/pi-coding-agent";
+import { createAgentSessionFromServices, createAgentSessionServices, createEventBus, getAgentDir, initTheme, SessionManager, Theme } from "@earendil-works/pi-coding-agent";
 import { KeybindingsManager as TuiKeybindingsManager, TUI_KEYBINDINGS } from "@earendil-works/pi-tui";
 import { randomUUID } from "crypto";
 import { existsSync, realpathSync, writeFileSync } from "fs";
@@ -14,6 +14,7 @@ import type { SlashCommandInfo } from "@earendil-works/pi-coding-agent";
 import type { AgentSessionLike, ExtensionUiContextLike, ToolInfo } from "./pi-types";
 import type { ExtensionUiRequest, ExtensionUiResponse, ExtensionWidgetItem } from "./types";
 import { createHeadlessCustomUiTui, DEFAULT_CUSTOM_UI_COLUMNS } from "./custom-ui-terminal";
+import { AskUserBridge } from "./ask-user-bridge";
 
 // ============================================================================
 // Types
@@ -150,6 +151,7 @@ export class AgentSessionWrapper {
   private idleTimer: ReturnType<typeof setTimeout> | null = null;
   private onDestroyCallback: (() => void) | null = null;
   private shutdownPromise: Promise<void> | null = null;
+  private askUserBridge: AskUserBridge | null = null;
   private _alive = true;
 
   constructor(public readonly inner: AgentSessionLike) {}
@@ -326,10 +328,21 @@ export class AgentSessionWrapper {
   onEvent(listener: EventListener): () => void {
     this.listeners.push(listener);
     for (const event of this.pendingUiRequests.values()) listener(event);
+    for (const event of this.askUserBridge?.getPendingEvents() ?? []) listener(event as AgentEvent);
     return () => {
       const i = this.listeners.indexOf(listener);
       if (i !== -1) this.listeners.splice(i, 1);
     };
+  }
+
+  /**
+   * Route pi-ask remote ask flows from this session's extension event bus to
+   * web clients. The bus must be the same instance the session's extensions
+   * were loaded with (see startRpcSession).
+   */
+  attachAskUserBridge(bus: ConstructorParameters<typeof AskUserBridge>[0]): void {
+    this.askUserBridge?.dispose();
+    this.askUserBridge = new AskUserBridge(bus, (event) => this.emit(event as AgentEvent));
   }
 
   onDestroy(cb: () => void): void {
@@ -597,6 +610,16 @@ export class AgentSessionWrapper {
         return { success: true };
       }
 
+      case "ask_user_submit": {
+        if (!this.askUserBridge) {
+          return { ok: false, error: "unavailable", message: "ask_user bridge is not ready" };
+        }
+        return this.askUserBridge.submit(
+          command.flowId as string,
+          command.response as never,
+        );
+      }
+
       case "abort_compaction": {
         this.inner.abortCompaction();
         return null;
@@ -656,6 +679,8 @@ export class AgentSessionWrapper {
     this.unsubscribe?.();
     for (const pending of this.pendingUiResponses.values()) pending.cancel();
     for (const id of Array.from(this.activeCustomUis.keys())) this.closeCustomUi(id, undefined);
+    this.askUserBridge?.dispose();
+    this.askUserBridge = null;
     this.pendingUiResponses.clear();
     this.pendingUiRequests.clear();
     try {
@@ -1211,9 +1236,13 @@ export async function startRpcSession(
     // Gate untrusted project extensions so opening a repository does not run
     // its .pi/extensions code automatically (see lib/project-trust.ts, #236).
     const trustReloadOptions = projectTrustReloadOptions(sessionCwd, agentDir);
+    // Give this session its own extension event bus so pi-ask remote ask flows
+    // (and any future bus-based extension hosts) are scoped to this session.
+    const extensionEventBus = createEventBus();
     const services = await createAgentSessionServices({
       cwd: sessionCwd,
       agentDir,
+      resourceLoaderOptions: { eventBus: extensionEventBus },
       ...(trustReloadOptions ? { resourceLoaderReloadOptions: trustReloadOptions } : {}),
     });
     const scope = await resolveVisibleModels(
@@ -1265,6 +1294,7 @@ export async function startRpcSession(
     }
 
     const wrapper = new AgentSessionWrapper(inner);
+    wrapper.attachAskUserBridge(extensionEventBus);
     // When all tools are disabled, clear the system prompt entirely.
     // pi's buildSystemPrompt always produces a non-empty prompt even with no tools;
     // keep this forced after extension resource discovery and reloads as well.

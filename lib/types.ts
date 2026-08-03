@@ -193,6 +193,61 @@ export type ExtensionUiResponse =
   | { type: "extension_ui_response"; id: string; confirmed: boolean }
   | { type: "extension_ui_response"; id: string; cancelled: true };
 
+// ============================================================================
+// ask_user (pi-ask remote ask protocol, bridged by lib/ask-user-bridge.ts)
+// ============================================================================
+
+export interface AskUserOption {
+  value: string;
+  label: string;
+  description?: string;
+  preview?: string;
+  freeform?: boolean;
+}
+
+export interface AskUserQuestion {
+  id: string;
+  label: string;
+  prompt: string;
+  type: "single" | "multi" | "preview";
+  options: AskUserOption[];
+  required: boolean;
+  presentedType?: "single" | "multi" | "preview";
+  requestedType?: "single" | "multi" | "preview";
+}
+
+export interface AskUserRequestEvent {
+  type: "ask_user_request";
+  version: 1;
+  flowId: string;
+  toolCallId?: string;
+  source: string;
+  title?: string;
+  questions: AskUserQuestion[];
+  createdAt: number;
+}
+
+export interface AskUserClosedEvent {
+  type: "ask_user_closed";
+  flowId: string;
+  result?: unknown;
+}
+
+export interface AskUserAnswer {
+  values?: string[];
+  customText?: string;
+  note?: string;
+  optionNotes?: Record<string, string>;
+}
+
+export type AskUserSubmitResponse =
+  | { kind: "answer"; answers: Record<string, AskUserAnswer>; mode?: "submit" | "elaborate" }
+  | { kind: "cancel" };
+
+export type AskUserSubmitResult =
+  | { ok: true }
+  | { ok: false; error: string; message: string };
+
 export interface ExtensionStatusItem {
   key: string;
   text: string;

@@ -10,6 +10,7 @@ import { ChatInput, type ChatInputHandle } from "./ChatInput";
 import { useVoiceChat } from "./useVoiceChat";
 import { ChatMinimap, useMessageRefs } from "./ChatMinimap";
 import { ExtensionStatusBar } from "./ExtensionStatusBar";
+import { AskUserDialog } from "./AskUserDialog";
 import { useI18n } from "@/hooks/useI18n";
 import { useAgentSession, type AgentPhase, type NoticeItem } from "@/hooks/useAgentSession";
 import { useAudio } from "@/hooks/useAudio";
@@ -185,6 +186,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
   const soundEnabledRef = useRef(soundEnabled);
   soundEnabledRef.current = soundEnabled;
   const soundedExtensionDialogIdRef = useRef<string | null>(null);
+  const soundedAskUserFlowIdRef = useRef<string | null>(null);
   const wrappedOnAgentEnd = useCallback(() => {
     if (soundEnabledRef.current) {
       playDoneSoundRef.current();
@@ -204,6 +206,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
     isCompacting, compactError, compactResult, displayModel: displayModelValue, sessionStats,
     slashCommands, slashCommandsLoading, queuedMessages,
     notices, extensionDialog, extensionCustomUi, extensionStatuses, extensionWidgets, respondToExtensionUi, sendExtensionCustomInput,
+    askUserFlow, respondAskUser,
     isAutoModelSelection,
     agentPhase,
     isNew,
@@ -262,6 +265,12 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
     soundedExtensionDialogIdRef.current = extensionDialog.id;
     playDoneSoundRef.current();
   }, [extensionDialog]);
+
+  useEffect(() => {
+    if (!askUserFlow || soundedAskUserFlowIdRef.current === askUserFlow.flowId) return;
+    soundedAskUserFlowIdRef.current = askUserFlow.flowId;
+    playDoneSoundRef.current();
+  }, [askUserFlow]);
 
   // Register the abort handler for the global Esc shortcut
   useEffect(() => {
@@ -486,6 +495,13 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
         <ExtensionDialog
           request={extensionDialog}
           onRespond={respondToExtensionUi}
+        />
+      )}
+
+      {askUserFlow && (
+        <AskUserDialog
+          flow={askUserFlow}
+          onRespond={respondAskUser}
         />
       )}
 
